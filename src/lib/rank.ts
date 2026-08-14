@@ -1,4 +1,5 @@
 import { cuisineById } from '../data/cuisines'
+import { keywordBoost } from './keyword'
 import { seedOilGradeScore, type SeedOilInfo } from './seedOil'
 import type {
   CuisineId,
@@ -144,6 +145,7 @@ export function rankRestaurants(
     center: LatLng
     selectedCuisines: CuisineId[]
     dietary: DietaryId[]
+    keyword?: string
     taste: TasteProfile
     limit?: number
     excludeIds?: Iterable<string>
@@ -172,6 +174,12 @@ export function rankRestaurants(
     const diet = dietaryBoost(place, opts.dietary)
     score += diet.points
     reasons.push(...diet.reasons)
+
+    if (opts.keyword?.trim()) {
+      const kw = keywordBoost(place, opts.keyword)
+      score += kw.points
+      reasons.push(...kw.reasons)
+    }
 
     if (opts.dietary.includes('no_seed_oils') && opts.seedOilByPlaceId) {
       const info = opts.seedOilByPlaceId[place.id]

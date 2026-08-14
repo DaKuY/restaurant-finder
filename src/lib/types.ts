@@ -105,4 +105,5 @@ export type SearchParams = {
   east: number
   cuisines: CuisineId[]
   dietary: DietaryId[]
+  keyword?: string
 }

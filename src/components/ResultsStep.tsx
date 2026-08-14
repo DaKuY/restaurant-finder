@@ -21,6 +21,7 @@ type Props = {
   cityLabel: string
   cityCenter: { lat: number; lon: number }
   cuisineLabels: string[]
+  keyword?: string
   loading: boolean
   error: string | null
   openNowOnly: boolean
@@ -54,6 +55,7 @@ export function ResultsStep({
   cityLabel,
   cityCenter,
   cuisineLabels,
+  keyword,
   loading,
   error,
   openNowOnly,
@@ -91,7 +93,7 @@ export function ResultsStep({
   })
 
   const favoriteCount = places.filter((p) => favoriteIds.has(p.id)).length
-  const fallback = cityCuisineFallbackLinks(cityLabel, cuisineLabels)
+  const fallback = cityCuisineFallbackLinks(cityLabel, cuisineLabels, keyword)
   const [mapReady, setMapReady] = useState(false)
 
   useEffect(() => {
@@ -109,8 +111,15 @@ export function ResultsStep({
         <p className="eyebrow">Your top picks · {cityLabel}</p>
         <h2>Ten places worth checking</h2>
         <p className="lede">
-          Ranked from OpenStreetMap for your area and taste. Star <strong>Favorite</strong> places you
-          want to keep, then <strong>Find more restaurants</strong> to swap out the rest for fresh options.
+          Ranked from OpenStreetMap for your area and taste
+          {keyword ? (
+            <>
+              {' '}
+              with a boost for <strong>{keyword}</strong>
+            </>
+          ) : null}
+          . Star <strong>Favorite</strong> places you want to keep, then{' '}
+          <strong>Find more restaurants</strong> to swap out the rest for fresh options.
         </p>
       </header>
 

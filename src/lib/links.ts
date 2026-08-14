@@ -31,8 +31,10 @@ export function menuOrWebsiteUrl(place: Restaurant, cityLabel: string): { href: 
 export function cityCuisineFallbackLinks(
   cityLabel: string,
   cuisineLabels: string[],
+  keyword?: string,
 ): { google: string; yelp: string; tripadvisor: string } {
-  const food = cuisineLabels.join(' ')
+  const kw = keyword?.trim()
+  const food = [kw, ...cuisineLabels].filter(Boolean).join(' ')
   const gq = encodeURIComponent(`best ${food} restaurants in ${cityLabel}`)
   const yDesc = encodeURIComponent(food || 'restaurants')
   const yLoc = encodeURIComponent(cityLabel)

@@ -1,11 +1,14 @@
 import { CUISINES, CUISINE_GROUPS, DIETARY_OPTIONS } from '../data/cuisines'
+import { KEYWORD_SUGGESTIONS } from '../lib/keyword'
 import type { CuisineId, DietaryId } from '../lib/types'
 
 type Props = {
   selected: CuisineId[]
   dietary: DietaryId[]
+  keyword: string
   onChange: (cuisines: CuisineId[]) => void
   onDietaryChange: (dietary: DietaryId[]) => void
+  onKeywordChange: (keyword: string) => void
   onBack: () => void
   onNext: () => void
   cityLabel: string
@@ -14,8 +17,10 @@ type Props = {
 export function CuisineStep({
   selected,
   dietary,
+  keyword,
   onChange,
   onDietaryChange,
+  onKeywordChange,
   onBack,
   onNext,
   cityLabel,
@@ -93,6 +98,33 @@ export function CuisineStep({
           instead.
         </p>
       )}
+
+      <h3 className="subhead">Specific keyword</h3>
+      <p className="muted small">
+        Optional — boosts places whose name or listing mentions your phrase (e.g. wild caught fish, grass fed
+        steak). Soft signal, not a hard filter.
+      </p>
+      <label className="field">
+        <span>Keyword or phrase</span>
+        <input
+          value={keyword}
+          onChange={(e) => onKeywordChange(e.target.value)}
+          placeholder='e.g. "wild caught fish" or "organic fruit"'
+          autoComplete="off"
+        />
+      </label>
+      <div className="chip-row wrap">
+        {KEYWORD_SUGGESTIONS.map((suggestion) => (
+          <button
+            key={suggestion}
+            type="button"
+            className={`chip ghost ${keyword.toLowerCase() === suggestion ? 'on' : ''}`}
+            onClick={() => onKeywordChange(keyword.toLowerCase() === suggestion ? '' : suggestion)}
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
 
       <div className="step-actions row">
         <button type="button" className="btn ghost" onClick={onBack}>
