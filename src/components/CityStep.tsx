@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, useMapEvents, Rectangle } from 'react-leaflet'
 import L from 'leaflet'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
@@ -43,20 +43,92 @@ function BoundsWatcher({ onBounds }: { onBounds: (b: MapBounds, center: { lat: n
   return null
 }
 
+function recentToCity(recent: RecentCity): CitySelection {
+  return {
+    label: recent.label,
+    center: { lat: recent.lat, lon: recent.lon },
+    bounds: { south: recent.south, west: recent.west, north: recent.north, east: recent.east },
+    source: 'search',
+  }
+}
+
+async function coordsToCity(lat: number, lon: number, delta = 0.04): Promise<CitySelection> {
+  let label = `${lat.toFixed(3)}, ${lon.toFixed(3)}`
+  try {
+    label = await reverseGeocode(lat, lon)
+  } catch {
+    // keep coords
+  }
+  return {
+    label,
+    center: { lat, lon },
+    bounds: { south: lat - delta, west: lon - delta, north: lat + delta, east: lon + delta },
+    source: 'map',
+  }
+}
+
 export function CityStep({ onConfirm, initial }: Props) {
-  const [query, setQuery] = useState('')
+  const lastRecent = initial ? null : loadRecentCities()[0]
+  const [query, setQuery] = useState(initial?.label ?? lastRecent?.label ?? '')
   const [hits, setHits] = useState<GeocodeHit[]>([])
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [locating, setLocating] = useState(false)
   const [recent, setRecent] = useState<RecentCity[]>(() => loadRecentCities())
-  const [draft, setDraft] = useState<CitySelection | null>(initial ?? null)
-  const [mapCenter, setMapCenter] = useState<[number, number]>([
-    initial?.center.lat ?? 40.7128,
-    initial?.center.lon ?? -74.006,
-  ])
+  const [draft, setDraft] = useState<CitySelection | null>(() => {
+    if (initial) return initial
+    if (lastRecent) return recentToCity(lastRecent)
+    return null
+  })
+  const [mapCenter, setMapCenter] = useState<[number, number]>(() => {
+    if (initial) return [initial.center.lat, initial.center.lon]
+    if (lastRecent) return [lastRecent.lat, lastRecent.lon]
+    return [40.7128, -74.006]
+  })
   const [mapKey, setMapKey] = useState(0)
+  const skipSearchRef = useRef(Boolean(lastRecent && !initial))
+
+  function applyLocation(city: CitySelection) {
+    skipSearchRef.current = true
+    setDraft(city)
+    setMapCenter([city.center.lat, city.center.lon])
+    setMapKey((k) => k + 1)
+    setQuery(city.label)
+    setHits([])
+  }
 
   useEffect(() => {
+    if (initial) return
+
+    let cancelled = false
+
+    if (navigator.geolocation) {
+      setLocating(true)
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          if (cancelled) return
+          const city = await coordsToCity(pos.coords.latitude, pos.coords.longitude)
+          if (!cancelled) applyLocation(city)
+          if (!cancelled) setLocating(false)
+        },
+        () => {
+          if (!cancelled) setLocating(false)
+        },
+        { enableHighAccuracy: false, timeout: 10000, maximumAge: 600000 },
+      )
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [initial])
+
+  useEffect(() => {
+    if (skipSearchRef.current) {
+      skipSearchRef.current = false
+      setHits([])
+      return
+    }
     if (query.trim().length < 2) {
       setHits([])
       return
@@ -81,24 +153,17 @@ export function CityStep({ onConfirm, initial }: Props) {
   }, [query])
 
   function selectHit(hit: GeocodeHit) {
-    const city: CitySelection = {
+    applyLocation({
       label: hit.label,
       center: { lat: hit.lat, lon: hit.lon },
       bounds: { south: hit.south, west: hit.west, north: hit.north, east: hit.east },
       source: 'search',
-    }
-    setDraft(city)
-    setMapCenter([hit.lat, hit.lon])
-    setMapKey((k) => k + 1)
-    setHits([])
-    setQuery(hit.label)
+    })
   }
 
   function selectRecent(c: RecentCity) {
     selectHit(c)
   }
-
-  const [locating, setLocating] = useState(false)
 
   function requestMyLocation() {
     runGeolocation()
@@ -113,25 +178,7 @@ export function CityStep({ onConfirm, initial }: Props) {
     setError(null)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const lat = pos.coords.latitude
-        const lon = pos.coords.longitude
-        const delta = 0.04
-        let label = `${lat.toFixed(3)}, ${lon.toFixed(3)}`
-        try {
-          label = await reverseGeocode(lat, lon)
-        } catch {
-          // keep coords
-        }
-        const city: CitySelection = {
-          label,
-          center: { lat, lon },
-          bounds: { south: lat - delta, west: lon - delta, north: lat + delta, east: lon + delta },
-          source: 'map',
-        }
-        setDraft(city)
-        setMapCenter([lat, lon])
-        setMapKey((k) => k + 1)
-        setQuery(label)
+        applyLocation(await coordsToCity(pos.coords.latitude, pos.coords.longitude))
         setLocating(false)
       },
       () => {
@@ -195,8 +242,9 @@ export function CityStep({ onConfirm, initial }: Props) {
         <p className="eyebrow">Hunt4Food · Step 1</p>
         <h2>Where are you eating?</h2>
         <p className="lede">
-          Hunt what&apos;s good nearby — type a city, tap <strong>Use my location</strong>, or zoom the map
-          to a neighborhood and confirm that area.
+          Hunt what&apos;s good nearby — we&apos;ll start from your location or last search when we can.
+          Type a city, tap <strong>Use my location</strong>, or zoom the map to a neighborhood and confirm
+          that area.
         </p>
       </header>
 

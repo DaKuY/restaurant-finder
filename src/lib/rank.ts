@@ -82,6 +82,13 @@ function isYes(v?: string): boolean {
   return s === 'yes' || s === 'only' || s === 'limited'
 }
 
+export function isFastFood(place: Restaurant): boolean {
+  if (place.amenity === 'fast_food') return true
+  if (place.cuisines.includes('fast_food')) return true
+  const raw = (place.cuisineRaw ?? '').toLowerCase()
+  return raw.split(/[;,]/).some((c) => c.trim() === 'fast_food')
+}
+
 function tasteBoost(place: Restaurant, taste: TasteProfile): { points: number; reasons: string[] } {
   let points = 0
   const reasons: string[] = []
@@ -149,37 +156,51 @@ export function rankRestaurants(
     taste: TasteProfile
     limit?: number
     excludeIds?: Iterable<string>
+    excludeFastFood?: boolean
     seedOilByPlaceId?: Record<string, SeedOilInfo>
   },
 ): RankedRestaurant[] {
   const limit = opts.limit ?? 10
   const exclude = opts.excludeIds ? new Set(opts.excludeIds) : null
-  const pool = exclude ? places.filter((p) => !exclude.has(p.id)) : places
+  let pool = exclude ? places.filter((p) => !exclude.has(p.id)) : places
+  if (opts.excludeFastFood) pool = pool.filter((p) => !isFastFood(p))
+
+  const keywordOnly = opts.selectedCuisines.length === 0 && Boolean(opts.keyword?.trim())
+  if (keywordOnly) {
+    pool = pool.filter((p) => keywordBoost(p, opts.keyword!).points > 0)
+  }
+
   const ranked: RankedRestaurant[] = pool.map((place) => {
     const reasons: string[] = []
     let score = 0
 
-    const matched = opts.selectedCuisines.filter((c) => matchesCuisine(place, c))
-    if (matched.length) {
-      score += 30 + matched.length * 8
-      reasons.push(
-        `Fits your pick${matched.length > 1 ? 's' : ''}: ${matched
-          .map((id) => cuisineById(id).label)
-          .join(', ')}`,
-      )
+    if (keywordOnly) {
+      const kw = keywordBoost(place, opts.keyword!)
+      score += kw.points
+      reasons.push(...kw.reasons)
     } else {
-      score -= 5
+      const matched = opts.selectedCuisines.filter((c) => matchesCuisine(place, c))
+      if (matched.length) {
+        score += 30 + matched.length * 8
+        reasons.push(
+          `Fits your pick${matched.length > 1 ? 's' : ''}: ${matched
+            .map((id) => cuisineById(id).label)
+            .join(', ')}`,
+        )
+      } else {
+        score -= 5
+      }
+
+      if (opts.keyword?.trim()) {
+        const kw = keywordBoost(place, opts.keyword)
+        score += kw.points
+        reasons.push(...kw.reasons)
+      }
     }
 
     const diet = dietaryBoost(place, opts.dietary)
     score += diet.points
     reasons.push(...diet.reasons)
-
-    if (opts.keyword?.trim()) {
-      const kw = keywordBoost(place, opts.keyword)
-      score += kw.points
-      reasons.push(...kw.reasons)
-    }
 
     if (opts.dietary.includes('no_seed_oils') && opts.seedOilByPlaceId) {
       const info = opts.seedOilByPlaceId[place.id]

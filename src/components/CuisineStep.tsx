@@ -29,14 +29,17 @@ export function CuisineStep({
     onChange([...selected, id])
   }
 
+  const trimmedKeyword = keyword.trim()
+  const canProceed = selected.length > 0 || trimmedKeyword.length > 0
+
   return (
     <section className="step cuisine-step">
       <header className="step-header">
         <p className="eyebrow">Hunt4Food · Step 2 · {cityLabel}</p>
         <h2>What are you craving?</h2>
         <p className="lede">
-          Pick up to three food types — healthy picks that still taste great, or whatever you&apos;re in the
-          mood for.
+          Pick up to three food types, or skip them and search by keyword alone — e.g. &quot;grass fed
+          steak&quot; or &quot;wild caught fish&quot;.
         </p>
       </header>
 
@@ -65,7 +68,7 @@ export function CuisineStep({
       <p className="muted">{selected.length}/3 selected</p>
 
       <label className="field keyword-field">
-        <span>Keyword search (optional)</span>
+        <span>Keyword search</span>
         <input
           value={keyword}
           onChange={(e) => onKeywordChange(e.target.value)}
@@ -74,14 +77,16 @@ export function CuisineStep({
         />
       </label>
       <p className="muted small">
-        Boosts places whose name or listing mentions your phrase. Soft signal, not a hard filter.
+        {selected.length > 0
+          ? 'Boosts places whose name or listing mentions your phrase. Soft signal, not a hard filter.'
+          : 'Search by keyword alone, or combine with food types above for tighter picks.'}
       </p>
 
       <div className="step-actions row">
         <button type="button" className="btn ghost" onClick={onBack}>
           Back
         </button>
-        <button type="button" className="btn primary" disabled={selected.length === 0} onClick={onNext}>
+        <button type="button" className="btn primary" disabled={!canProceed} onClick={onNext}>
           Find 10 places
         </button>
       </div>
