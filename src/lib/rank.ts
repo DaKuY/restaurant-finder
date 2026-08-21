@@ -82,6 +82,13 @@ function isYes(v?: string): boolean {
   return s === 'yes' || s === 'only' || s === 'limited'
 }
 
+export function isFastFood(place: Restaurant): boolean {
+  if (place.amenity === 'fast_food') return true
+  if (place.cuisines.includes('fast_food')) return true
+  const raw = (place.cuisineRaw ?? '').toLowerCase()
+  return raw.split(/[;,]/).some((c) => c.trim() === 'fast_food')
+}
+
 function tasteBoost(place: Restaurant, taste: TasteProfile): { points: number; reasons: string[] } {
   let points = 0
   const reasons: string[] = []
@@ -149,12 +156,14 @@ export function rankRestaurants(
     taste: TasteProfile
     limit?: number
     excludeIds?: Iterable<string>
+    excludeFastFood?: boolean
     seedOilByPlaceId?: Record<string, SeedOilInfo>
   },
 ): RankedRestaurant[] {
   const limit = opts.limit ?? 10
   const exclude = opts.excludeIds ? new Set(opts.excludeIds) : null
-  const pool = exclude ? places.filter((p) => !exclude.has(p.id)) : places
+  let pool = exclude ? places.filter((p) => !exclude.has(p.id)) : places
+  if (opts.excludeFastFood) pool = pool.filter((p) => !isFastFood(p))
   const ranked: RankedRestaurant[] = pool.map((place) => {
     const reasons: string[] = []
     let score = 0

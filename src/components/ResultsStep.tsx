@@ -7,7 +7,7 @@ import {
   yelpUrl,
 } from '../lib/links'
 import type { PlaceRatings } from '../lib/ratings'
-import { isProbablyOpenNow } from '../lib/rank'
+import { isFastFood, isProbablyOpenNow } from '../lib/rank'
 import type { SeedOilInfo } from '../lib/seedOil'
 import type { RankedRestaurant } from '../lib/types'
 import { RatingsRow } from './RatingsRow'
@@ -26,6 +26,7 @@ type Props = {
   error: string | null
   openNowOnly: boolean
   hasWebsiteOnly: boolean
+  noFastFood: boolean
   ratingsMap: Record<string, PlaceRatings>
   ratingsLoading: boolean
   seedOilMap: Record<string, SeedOilInfo>
@@ -38,6 +39,7 @@ type Props = {
   onSearchAgain: () => void
   onToggleOpenNow: () => void
   onToggleWebsite: () => void
+  onToggleNoFastFood: () => void
   onLove: (place: RankedRestaurant) => void
   onSkip: (place: RankedRestaurant) => void
   onShortlist: (place: RankedRestaurant) => void
@@ -60,6 +62,7 @@ export function ResultsStep({
   error,
   openNowOnly,
   hasWebsiteOnly,
+  noFastFood,
   ratingsMap,
   ratingsLoading,
   seedOilMap,
@@ -72,6 +75,7 @@ export function ResultsStep({
   onSearchAgain,
   onToggleOpenNow,
   onToggleWebsite,
+  onToggleNoFastFood,
   onLove,
   onSkip,
   onShortlist,
@@ -84,6 +88,7 @@ export function ResultsStep({
   onNewSearch,
 }: Props) {
   const filtered = places.filter((p) => {
+    if (noFastFood && isFastFood(p)) return false
     if (hasWebsiteOnly && !p.website) return false
     if (openNowOnly) {
       const open = isProbablyOpenNow(p.openingHours)
@@ -136,6 +141,13 @@ export function ResultsStep({
           onClick={onToggleWebsite}
         >
           Has website
+        </button>
+        <button
+          type="button"
+          className={`chip ghost ${noFastFood ? 'on' : ''}`}
+          onClick={onToggleNoFastFood}
+        >
+          No fast food
         </button>
         <button type="button" className="chip ghost" onClick={onCopySearchLink}>
           Copy search link
