@@ -1,5 +1,5 @@
 import { readJson, writeJson } from './storage'
-import type { DietaryId, TastePlace, TasteProfile } from './types'
+import type { CitySelection, DietaryId, TastePlace, TasteProfile } from './types'
 
 const KEY = 'taste'
 const MAX_LOVED = 80
@@ -154,6 +154,15 @@ const RECENT_KEY = 'recentCities'
 
 export function loadRecentCities(): RecentCity[] {
   return readJson<RecentCity[]>(RECENT_KEY, []).slice(0, 8)
+}
+
+export function recentToCitySelection(recent: RecentCity): CitySelection {
+  return {
+    label: recent.label,
+    center: { lat: recent.lat, lon: recent.lon },
+    bounds: { south: recent.south, west: recent.west, north: recent.north, east: recent.east },
+    source: 'search',
+  }
 }
 
 export function pushRecentCity(city: RecentCity): RecentCity[] {

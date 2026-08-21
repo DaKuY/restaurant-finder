@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { MapContainer, TileLayer, useMapEvents, Rectangle } from 'react-leaflet'
 import L from 'leaflet'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
-import { reverseGeocode, searchCities, type GeocodeHit } from '../lib/geocode'
-import { loadRecentCities, pushRecentCity, type RecentCity } from '../lib/taste'
+import { coordsToCitySelection, reverseGeocode, searchCities, type GeocodeHit } from '../lib/geocode'
+import { loadRecentCities, pushRecentCity, recentToCitySelection, type RecentCity } from '../lib/taste'
 import type { CitySelection, MapBounds } from '../lib/types'
 import 'leaflet/dist/leaflet.css'
 
@@ -44,10 +44,11 @@ function BoundsWatcher({ onBounds }: { onBounds: (b: MapBounds, center: { lat: n
 }
 
 export function CityStep({ onConfirm, initial }: Props) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initial?.label ?? '')
   const [hits, setHits] = useState<GeocodeHit[]>([])
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [locating, setLocating] = useState(false)
   const [recent, setRecent] = useState<RecentCity[]>(() => loadRecentCities())
   const [draft, setDraft] = useState<CitySelection | null>(initial ?? null)
   const [mapCenter, setMapCenter] = useState<[number, number]>([
@@ -55,8 +56,23 @@ export function CityStep({ onConfirm, initial }: Props) {
     initial?.center.lon ?? -74.006,
   ])
   const [mapKey, setMapKey] = useState(0)
+  const skipSearchRef = useRef(Boolean(initial?.label))
+
+  function applyLocation(city: CitySelection) {
+    skipSearchRef.current = true
+    setDraft(city)
+    setMapCenter([city.center.lat, city.center.lon])
+    setMapKey((k) => k + 1)
+    setQuery(city.label)
+    setHits([])
+  }
 
   useEffect(() => {
+    if (skipSearchRef.current) {
+      skipSearchRef.current = false
+      setHits([])
+      return
+    }
     if (query.trim().length < 2) {
       setHits([])
       return
@@ -80,28 +96,34 @@ export function CityStep({ onConfirm, initial }: Props) {
     }
   }, [query])
 
+  function scrollToTop() {
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function confirmCitySelection(city: CitySelection) {
+    setRecent(
+      pushRecentCity({
+        label: city.label,
+        lat: city.center.lat,
+        lon: city.center.lon,
+        ...city.bounds,
+      }),
+    )
+    scrollToTop()
+    onConfirm(city)
+  }
+
   function selectHit(hit: GeocodeHit) {
-    const city: CitySelection = {
+    applyLocation({
       label: hit.label,
       center: { lat: hit.lat, lon: hit.lon },
       bounds: { south: hit.south, west: hit.west, north: hit.north, east: hit.east },
       source: 'search',
-    }
-    setDraft(city)
-    setMapCenter([hit.lat, hit.lon])
-    setMapKey((k) => k + 1)
-    setHits([])
-    setQuery(hit.label)
+    })
   }
 
   function selectRecent(c: RecentCity) {
-    selectHit(c)
-  }
-
-  const [locating, setLocating] = useState(false)
-
-  function requestMyLocation() {
-    runGeolocation()
+    confirmCitySelection(recentToCitySelection(c))
   }
 
   function runGeolocation() {
@@ -113,25 +135,7 @@ export function CityStep({ onConfirm, initial }: Props) {
     setError(null)
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
-        const lat = pos.coords.latitude
-        const lon = pos.coords.longitude
-        const delta = 0.04
-        let label = `${lat.toFixed(3)}, ${lon.toFixed(3)}`
-        try {
-          label = await reverseGeocode(lat, lon)
-        } catch {
-          // keep coords
-        }
-        const city: CitySelection = {
-          label,
-          center: { lat, lon },
-          bounds: { south: lat - delta, west: lon - delta, north: lat + delta, east: lon + delta },
-          source: 'map',
-        }
-        setDraft(city)
-        setMapCenter([lat, lon])
-        setMapKey((k) => k + 1)
-        setQuery(label)
+        applyLocation(await coordsToCitySelection(pos.coords.latitude, pos.coords.longitude))
         setLocating(false)
       },
       () => {
@@ -142,13 +146,8 @@ export function CityStep({ onConfirm, initial }: Props) {
     )
   }
 
-  function scrollToTop() {
-    window.scrollTo({ top: 0, behavior: 'smooth' })
-  }
-
   async function confirmMapArea() {
     if (!draft) {
-      // Use current default map bounds approx
       const lat = mapCenter[0]
       const lon = mapCenter[1]
       const delta = 0.06
@@ -158,27 +157,15 @@ export function CityStep({ onConfirm, initial }: Props) {
       } catch {
         // keep coords
       }
-      const city: CitySelection = {
+      confirmCitySelection({
         label,
         center: { lat, lon },
         bounds: { south: lat - delta, west: lon - delta, north: lat + delta, east: lon + delta },
         source: 'map',
-      }
-      setRecent(pushRecentCity({ label: city.label, lat, lon, ...city.bounds }))
-      scrollToTop()
-      onConfirm(city)
+      })
       return
     }
-    setRecent(
-      pushRecentCity({
-        label: draft.label,
-        lat: draft.center.lat,
-        lon: draft.center.lon,
-        ...draft.bounds,
-      }),
-    )
-    scrollToTop()
-    onConfirm(draft)
+    confirmCitySelection(draft)
   }
 
   const rectBounds = useMemo(() => {
@@ -195,8 +182,8 @@ export function CityStep({ onConfirm, initial }: Props) {
         <p className="eyebrow">Hunt4Food · Step 1</p>
         <h2>Where are you eating?</h2>
         <p className="lede">
-          Hunt what&apos;s good nearby — type a city, tap <strong>Use my location</strong>, or zoom the map
-          to a neighborhood and confirm that area.
+          Hunt what&apos;s good nearby — type a city, tap <strong>Use my location</strong>, pick a recent spot,
+          or zoom the map to a neighborhood and confirm that area.
         </p>
       </header>
 
@@ -213,7 +200,7 @@ export function CityStep({ onConfirm, initial }: Props) {
       <button
         type="button"
         className="btn ghost location-btn"
-        onClick={requestMyLocation}
+        onClick={runGeolocation}
         disabled={locating}
         aria-busy={locating}
       >
@@ -252,7 +239,7 @@ export function CityStep({ onConfirm, initial }: Props) {
         <button
           type="button"
           className="map-locate-btn btn ghost"
-          onClick={requestMyLocation}
+          onClick={runGeolocation}
           disabled={locating}
           title="Use my location"
           aria-label="Use my location"

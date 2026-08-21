@@ -1,3 +1,5 @@
+import type { CitySelection } from './types'
+
 let lastGeocodeAt = 0
 
 async function throttleGeocode(): Promise<void> {
@@ -141,4 +143,23 @@ export async function reverseGeocode(lat: number, lon: number, signal?: AbortSig
     // fall through
   }
   return `${lat.toFixed(3)}, ${lon.toFixed(3)}`
+}
+
+export async function coordsToCitySelection(
+  lat: number,
+  lon: number,
+  delta = 0.04,
+): Promise<CitySelection> {
+  let label = `${lat.toFixed(3)}, ${lon.toFixed(3)}`
+  try {
+    label = await reverseGeocode(lat, lon)
+  } catch {
+    // keep coords
+  }
+  return {
+    label,
+    center: { lat, lon },
+    bounds: { south: lat - delta, west: lon - delta, north: lat + delta, east: lon + delta },
+    source: 'map',
+  }
 }
