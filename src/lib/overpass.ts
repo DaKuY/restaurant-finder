@@ -1,14 +1,21 @@
-import { readCache, writeCache } from './storage'
+import { readCache, readStaleCache, writeCache } from './storage'
 import type { MapBounds, Restaurant } from './types'
 
+/** Public Overpass mirrors — order is a hint; we race and fall back across all of them. */
 const MIRRORS = [
+  'https://overpass.openstreetmap.fr/api/interpreter',
+  'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
   'https://overpass-api.de/api/interpreter',
   'https://overpass.osm.jp/api/interpreter',
 ]
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 12 // 12 hours
-const MIRROR_TIMEOUT_MS = 7000
+const STALE_CACHE_MAX_MS = 1000 * 60 * 60 * 24 * 7 // 7 days — offline fallback
+const MIRROR_TIMEOUT_MS = 15000
+const QUERY_TIMEOUT_SEC = 25
+const RETRY_DELAY_MS = 2000
+const MAX_ATTEMPTS = 2
 const RESULT_CAP = 300
 
 type OverpassElement = {
@@ -24,7 +31,7 @@ function buildAreaQuery(bounds: MapBounds): string {
   const { south, west, north, east } = bounds
   const bbox = `${south},${west},${north},${east}`
   return `
-[out:json][timeout:8];
+[out:json][timeout:${QUERY_TIMEOUT_SEC}];
 nwr["amenity"~"^(restaurant|cafe|fast_food|ice_cream|food_court)$"](${bbox});
 out center tags ${RESULT_CAP};
 `.trim()
@@ -90,6 +97,27 @@ function cacheKey(bounds: MapBounds): string {
   return `overpass:v4:area:${b}`
 }
 
+function isAbortError(e: unknown): boolean {
+  if (e instanceof AggregateError) {
+    return e.errors.length > 0 && e.errors.every(isAbortError)
+  }
+  return e instanceof DOMException
+    ? e.name === 'AbortError'
+    : (e as Error)?.name === 'AbortError'
+}
+
+async function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException('Aborted', 'AbortError'))
+    }
+    signal?.addEventListener('abort', onAbort, { once: true })
+  })
+}
+
 async function fetchMirror(mirror: string, query: string, signal?: AbortSignal): Promise<Restaurant[]> {
   const controller = new AbortController()
   const onAbort = () => controller.abort()
@@ -107,23 +135,64 @@ async function fetchMirror(mirror: string, query: string, signal?: AbortSignal):
     const places = (data.elements ?? [])
       .map(elementToRestaurant)
       .filter((p): p is Restaurant => p != null)
-    const unique = dedupe(places)
-    if (!unique.length) throw new Error(`Empty Overpass result @ ${mirror}`)
-    return unique
+    return dedupe(places)
   } finally {
     clearTimeout(timer)
     signal?.removeEventListener('abort', onAbort)
   }
 }
 
+async function fetchFromMirrorsParallel(query: string, signal?: AbortSignal): Promise<Restaurant[]> {
+  return Promise.any(MIRRORS.map((mirror) => fetchMirror(mirror, query, signal)))
+}
+
+async function fetchFromMirrorsSequential(query: string, signal?: AbortSignal): Promise<Restaurant[]> {
+  let lastError: unknown
+  for (const mirror of MIRRORS) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    try {
+      return await fetchMirror(mirror, query, signal)
+    } catch (e) {
+      lastError = e
+      if (isAbortError(e)) throw e
+    }
+  }
+  throw lastError ?? new Error('All Overpass mirrors failed')
+}
+
+async function fetchLive(bounds: MapBounds, signal?: AbortSignal): Promise<Restaurant[]> {
+  const query = buildAreaQuery(bounds)
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError')
+    try {
+      if (attempt === 0) return await fetchFromMirrorsParallel(query, signal)
+      return await fetchFromMirrorsSequential(query, signal)
+    } catch (e) {
+      lastError = e
+      if (isAbortError(e)) throw e
+      if (attempt < MAX_ATTEMPTS - 1) await delay(RETRY_DELAY_MS, signal)
+    }
+  }
+
+  throw lastError ?? new Error('All Overpass mirrors failed')
+}
+
 /** All mapped restaurants/cafes in the visible area. Cuisine ranking happens client-side. */
 export async function fetchRestaurants(bounds: MapBounds, signal?: AbortSignal): Promise<Restaurant[]> {
   const key = cacheKey(bounds)
   const cached = readCache<Restaurant[]>(key)
-  if (cached?.length) return cached
+  if (cached) return cached
 
-  const query = buildAreaQuery(bounds)
-  const places = await Promise.any(MIRRORS.map((mirror) => fetchMirror(mirror, query, signal)))
-  writeCache(key, places, CACHE_TTL_MS)
-  return places
+  try {
+    const places = await fetchLive(bounds, signal)
+    writeCache(key, places, CACHE_TTL_MS)
+    return places
+  } catch (e) {
+    if (isAbortError(e)) throw e
+    const stale = readStaleCache<Restaurant[]>(key, STALE_CACHE_MAX_MS)
+    if (stale) return stale
+    throw e
+  }
 }

@@ -34,6 +34,14 @@ export function readCache<T>(key: string): T | null {
   return entry.value
 }
 
+/** Return cached data even after TTL, up to maxAgeMs since it was saved. */
+export function readStaleCache<T>(key: string, maxAgeMs: number): T | null {
+  const entry = readJson<CacheEntry<T> | null>(`cache:${key}`, null)
+  if (!entry) return null
+  if (Date.now() - entry.savedAt > maxAgeMs) return null
+  return entry.value
+}
+
 export function writeCache<T>(key: string, value: T, ttlMs: number): void {
   writeJson(`cache:${key}`, {
     savedAt: Date.now(),
