@@ -2,9 +2,8 @@ import { readCache, writeCache } from './storage'
 import type { MapBounds, Restaurant } from './types'
 
 const MIRRORS = [
-  'https://overpass.kumi.systems/api/interpreter',
   'https://overpass-api.de/api/interpreter',
-  'https://overpass.osm.jp/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
 ]
 
 const CACHE_TTL_MS = 1000 * 60 * 60 * 12 // 12 hours

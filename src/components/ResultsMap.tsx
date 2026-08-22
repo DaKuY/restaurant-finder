@@ -14,7 +14,7 @@ export function ResultsMap({ places, center }: Props) {
       <MapContainer center={[center.lat, center.lon]} zoom={13} className="city-map results-map" scrollWheelZoom={false}>
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         {places.map((p, i) => (
           <CircleMarker
